@@ -8,9 +8,10 @@ from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, reca
 from collections import defaultdict
 import matplotlib.pyplot as plt
 from tqdm import tqdm
-import random
+import os
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+os.makedirs("saved_models", exist_ok=True)
 
 class CNNBiLSTMModel(nn.Module):
     def __init__(self, input_channels, input_time):
@@ -68,6 +69,10 @@ def train_k_fold(data_by_patient, k=5):
 
         print(f"[DEBUG] y_train 발작 비율: {np.mean(y_train):.4f}, y_val 발작 비율: {np.mean(y_val):.4f}")
 
+        if len(np.unique(y_val)) < 2:
+            print(f"⚠️ Fold {fold+1}: validation set has only one class. Skipping this fold.")
+            continue
+
         pos_weight_val = calculate_pos_weight(y_train)
         print(f"[INFO] pos_weight 자동 계산값: {pos_weight_val:.2f}")
         pos_weight = torch.tensor([pos_weight_val], dtype=torch.float32).to(DEVICE)
@@ -82,6 +87,7 @@ def train_k_fold(data_by_patient, k=5):
         train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=32, shuffle=False)
 
+        best_f1 = 0.0
         for epoch in range(50):
             model.train()
             running_loss = 0.0
@@ -97,31 +103,34 @@ def train_k_fold(data_by_patient, k=5):
                 running_loss += loss.item()
             print(f"Epoch {epoch + 1}, Loss: {running_loss / len(train_loader):.4f}")
 
-        model.eval()
-        all_preds, all_labels = [], []
-        with torch.no_grad():
-            for X_batch, y_batch in val_loader:
-                X_batch = X_batch.to(DEVICE)
-                if X_batch.ndim == 4:
-                    X_batch = X_batch.squeeze(1)
-                outputs = torch.sigmoid(model(X_batch).squeeze())
-                all_preds.extend(outputs.cpu().numpy())
-                all_labels.extend(y_batch.numpy())
+            # 평가 및 성능 향상 시 저장
+            model.eval()
+            all_preds, all_labels = [], []
+            with torch.no_grad():
+                for X_batch, y_batch in val_loader:
+                    X_batch = X_batch.to(DEVICE)
+                    if X_batch.ndim == 4:
+                        X_batch = X_batch.squeeze(1)
+                    outputs = torch.sigmoid(model(X_batch).squeeze())
+                    all_preds.extend(outputs.cpu().numpy())
+                    all_labels.extend(y_batch.numpy())
 
-        preds_bin = [1 if p > 0.5 else 0 for p in all_preds]
+            preds_bin = [1 if p > 0.5 else 0 for p in all_preds]
 
-        if len(np.unique(all_labels)) < 2:
-            print("⚠️ Warning: Only one class in validation labels. AUC undefined.")
-            auc = float('nan')
-        else:
             auc = roc_auc_score(all_labels, all_preds)
+            f1 = f1_score(all_labels, preds_bin)
+            if f1 > best_f1:
+                best_f1 = f1
+                save_path = f"backend_server/saved_models/model_fold{fold+1}_best.pt"
+                torch.save(model.state_dict(), save_path)
+                print(f"✅ Best model updated and saved to {save_path} (F1: {f1:.4f})")
 
-        print(f"Accuracy: {accuracy_score(all_labels, preds_bin):.4f}, AUC: {auc:.4f}, F1: {f1_score(all_labels, preds_bin):.4f}")
+        print(f"Final Fold {fold+1} Accuracy: {accuracy_score(all_labels, preds_bin):.4f}, AUC: {auc:.4f}, F1: {f1:.4f}")
 
 if __name__ == "__main__":
-    X = np.load("npy/X_dwt.npy")
-    y = np.load("npy/y_total.npy")
-    ids = np.load("npy/id_list.npy")
+    X = np.load("backend_server/npy/X_dwt.npy")
+    y = np.load("backend_server/npy/y_total.npy")
+    ids = np.load("backend_server/npy/id_list.npy")
 
     data_by_patient = defaultdict(lambda: {'X': [], 'y': []})
     for i in range(len(X)):
