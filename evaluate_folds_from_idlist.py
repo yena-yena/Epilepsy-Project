@@ -83,3 +83,7 @@ for fold in range(n_folds):
 df = pd.DataFrame(results)
 df.loc["Average"] = df[["Accuracy", "AUC", "F1-Score"]].dropna().mean()
 print(df.round(4))
+
+# 🔄 결과 저장
+df.to_csv("evaluation_fold_results.csv", index=False)
+print("✅ evaluation_fold_results.csv 저장 완료")

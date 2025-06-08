@@ -1,17 +1,7 @@
-# EEG 원본 데이터 제외
 *.edf
-
-# 전처리된 넘파이 파일 제외
 *.npy
-
-# 학습된 모델 제외
-*.pt
-
-# Python 캐시 및 Jupyter 체크포인트 제외
 __pycache__/
 .ipynb_checkpoints/
-
-# macOS, Windows 시스템 파일
 .DS_Store
-Thumbs.db
-desktop.ini
+*.pt
+venv/
