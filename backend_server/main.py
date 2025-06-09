@@ -1,20 +1,28 @@
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
-from typing import List  # ✅ Python 3.8 지원을 위한 typing import
+from typing import List
 import numpy as np
 import torch
 from backend_server.model import CNNBiLSTMModel
 
+def safe_print(*args, **kwargs):
+    try:
+        print(*args, **kwargs)
+    except UnicodeEncodeError:
+        try:
+            print(*[str(a).encode('utf-8', 'ignore').decode('utf-8', 'ignore') for a in args], **kwargs)
+        except Exception:
+            print("[PRINT ERROR] 로그 출력 실패 (UnicodeDecodeError)")
+
 app = FastAPI()
 
-# ✅ 정확한 데이터 타입 지정 (Python 3.8 호환)
+# ✅ 정확한 데이터 타입 지정
 class EEGInput(BaseModel):
-    data: List[List[float]]  # Python 3.8 이상에서 호환
+    data: List[List[float]]
 
-# 모델 경로 및 장치 설정
 MODEL_PATH = "backend_server/saved_models/model_fold1_best.pt"
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = CNNBiLSTMModel(input_channels=8, input_time=38).to(DEVICE)
+model = CNNBiLSTMModel(input_channels=8, input_time=80).to(DEVICE)
 model.load_state_dict(torch.load(MODEL_PATH, map_location=DEVICE))
 model.eval()
 
@@ -26,17 +34,17 @@ def root():
 async def predict(input_data: EEGInput, request: Request):
     try:
         arr = np.array(input_data.data)
-        print("🔥 들어온 EEG 데이터 shape:", arr.shape)
+        safe_print("🔥 들어온 EEG 데이터 shape:", arr.shape)
 
-        if arr.shape != (8, 38):
-            raise ValueError(f"❌ 입력 shape 오류: {arr.shape} (기대값: (8, 38))")
+        if arr.shape != (8, 80):
+            raise ValueError(f"❌ 입력 shape 오류: {arr.shape} (기대값: (8, 80))")
 
         with torch.no_grad():
             tensor_input = torch.tensor(arr, dtype=torch.float32).unsqueeze(0).to(DEVICE)
             output = model(tensor_input).squeeze().item()
             prob = torch.sigmoid(torch.tensor(output)).item()
 
-            print(f"✅ 예측 완료 - 확률: {prob:.4f}")
+            safe_print(f"✅ 예측 완료 - 확률: {prob:.4f}")
             return {
                 "prediction": int(prob > 0.5),
                 "probability": prob
@@ -44,8 +52,11 @@ async def predict(input_data: EEGInput, request: Request):
 
     except Exception as e:
         body = await request.body()
-        print("❌ 예외 발생:", e)
-        print("📦 요청 본문:", body.decode("utf-8"))
+        safe_print("❌ 예외 발생:", e)
+        try:
+            safe_print("📦 요청 본문:", body.decode("utf-8"))
+        except Exception:
+            safe_print("📦 요청 본문 디코딩 실패")
         raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
