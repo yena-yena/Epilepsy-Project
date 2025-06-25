@@ -138,7 +138,7 @@ class _EEGStreamGraphState extends State<EEGStreamGraph> {
       return errorMsg;
     }
 
-    const url = 'http://10.0.2.2:8001/predict';
+    const url = 'http://10.0.2.2:8000/predict';
     try {
       final payload = {"data": data};
 

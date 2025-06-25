@@ -2,10 +2,25 @@ import torch
 import torch.nn as nn
 import numpy as np
 import pandas as pd
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score
+import matplotlib.pyplot as plt
+import platform
+from matplotlib import font_manager, rc
+from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, precision_score, recall_score, confusion_matrix
+
 import os
 
-# ✅ 예나님 학습 모델 구조 그대로 복붙
+# ===== 한글 폰트 설정 (OS별 자동 적용) =====
+if platform.system() == 'Darwin':  # macOS
+    rc('font', family='AppleGothic')
+elif platform.system() == 'Windows':
+    font_path = "C:/Windows/Fonts/malgun.ttf"
+    font_name = font_manager.FontProperties(fname=font_path).get_name()
+    rc('font', family=font_name)
+else:  # Linux (Colab 등)
+    rc('font', family='NanumGothic')
+plt.rcParams['axes.unicode_minus'] = False
+
+# 모델 정의
 class CNNBiLSTMModel(nn.Module):
     def __init__(self, input_channels, input_time):
         super(CNNBiLSTMModel, self).__init__()
@@ -29,12 +44,11 @@ class CNNBiLSTMModel(nn.Module):
         x = self.fc(x)
         return x
 
-# ✅ 데이터 로딩
+# 데이터 로딩
 X = np.load("backend_server/npy/X_dwt.npy")
 y = np.load("backend_server/npy/y_total.npy")
 ids = np.load("backend_server/npy/id_list.npy")
 
-# ✅ Fold 나누기
 unique_ids = sorted(list(set(ids)))
 n_folds = 4
 fold_size = len(unique_ids) // n_folds
@@ -59,31 +73,76 @@ for fold in range(n_folds):
         X_tensor = torch.tensor(X_test, dtype=torch.float32)
         outputs = model(X_tensor).squeeze()
         probs = torch.sigmoid(outputs).numpy()
-        preds = (probs >= 0.5).astype(int)
+        preds = (probs >= 0.5).astype(int)   # threshold=0.5
 
+    # 평가 지표
     acc = accuracy_score(y_test, preds)
-
     try:
         auc = roc_auc_score(y_test, probs)
     except ValueError:
-        print(f"⚠️ Fold {fold+1}: AUC 계산 실패 (한쪽 클래스만 존재)")
         auc = None
+    f1 = f1_score(y_test, preds, zero_division=0)
+    precision = precision_score(y_test, preds, zero_division=0)
+    recall = recall_score(y_test, preds, zero_division=0)
+    cm = confusion_matrix(y_test, preds)
+    tn, fp, fn, tp = (0, 0, 0, 0)
+    if cm.size == 4:
+        tn, fp, fn, tp = cm.ravel()
 
-    f1 = f1_score(y_test, preds)
+    # ✅ 평가 지표 print
+    print(f"\n----- Fold {fold+1} ({', '.join(test_ids)}) -----")
+    print(f"Accuracy:  {acc:.4f}")
+    print(f"AUC:       {auc if auc is not None else 'N/A'}")
+    print(f"F1-score:  {f1:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall:    {recall:.4f}")
+    print(f"Confusion Matrix (TN, FP, FN, TP): {tn}, {fp}, {fn}, {tp}")
 
+    # ✅ 혼동행렬 시각화
+    plt.figure(figsize=(5,4))
+    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.title(f'Fold {fold+1} 혼동행렬 (임계값=0.5)')
+    plt.colorbar()
+    classes = ['정상', '발작']
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes)
+    plt.yticks(tick_marks, classes)
+
+    thresh = cm.max() / 2. if cm.max() > 0 else 1
+    for i in range(cm.shape[0]):
+        for j in range(cm.shape[1]):
+            plt.text(j, i, format(cm[i, j], 'd'),
+                    ha="center", va="center",
+                    color="white" if cm[i, j] > thresh else "black", fontsize=16)
+
+    plt.ylabel('실제값', fontsize=12)
+    plt.xlabel('예측값', fontsize=12)
+    plt.tight_layout()
+    plt.savefig(f"confusion_matrix_fold{fold+1}.png")  # 이미지 파일로 저장
+    plt.show()
+
+    # csv 결과 저장용
     results.append({
         "Fold": fold + 1,
         "Test Patients": ", ".join(test_ids),
         "Accuracy": acc,
         "AUC": auc,
-        "F1-Score": f1
+        "F1-Score": f1,
+        "Precision": precision,
+        "Recall": recall,
+        "TN": tn,
+        "FP": fp,
+        "FN": fn,
+        "TP": tp
     })
 
-# ✅ 결과 정리
+# 평균 추가
 df = pd.DataFrame(results)
-df.loc["Average"] = df[["Accuracy", "AUC", "F1-Score"]].dropna().mean()
-print(df.round(4))
-
-# 🔄 결과 저장
+mean_row = df[["Accuracy", "AUC", "F1-Score", "Precision", "Recall", "TN", "FP", "FN", "TP"]].mean()
+mean_row["Fold"] = "평균"
+mean_row["Test Patients"] = ""
+df = df.append(mean_row, ignore_index=True)
+df = df.round(4)
+print(df)
 df.to_csv("evaluation_fold_results.csv", index=False)
-print("✅ evaluation_fold_results.csv 저장 완료")
+print("\n✅ 모든 fold 지표와 혼동행렬 이미지 저장 완료!")

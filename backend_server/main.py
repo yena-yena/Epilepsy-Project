@@ -5,6 +5,9 @@ import numpy as np
 import torch
 from backend_server.model import CNNBiLSTMModel
 
+
+print("main.py 실행됨")
+
 def safe_print(*args, **kwargs):
     try:
         print(*args, **kwargs)
@@ -61,4 +64,4 @@ async def predict(input_data: EEGInput, request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

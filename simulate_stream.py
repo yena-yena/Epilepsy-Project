@@ -42,7 +42,12 @@ def stream_sample():
 
     # EEG chunk + 라벨 반환
     sample = X[idx]        # shape: [8, 38]
+    sample = np.squeeze(sample, axis=0) 
     label = int(y[idx])    # 0 or 1
+
+    print("전체 X shape:", X.shape)
+    print("샘플 shape:", sample.shape)
+
 
     # 다음 요청을 위해 인덱스 증가
     current_index["idx"] += 1
@@ -51,3 +56,13 @@ def stream_sample():
         "data": sample.tolist(),  # Python 기본 타입으로 변환해서 반환
         "label": label
     }
+
+
+
+# 🟢 **이 부분이 꼭 필요!**
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)
+
+
+
